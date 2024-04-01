@@ -1,23 +1,48 @@
 import { useState } from "react";
 import server from "./server";
+import * as secp from "ethereum-cryptography/secp256k1";
+import {secp256k1} from 'ethereum-cryptography/secp256k1';
+import { toHex,utf8ToBytes } from 'ethereum-cryptography/utils';
+import { keccak256 } from "ethereum-cryptography/keccak";
 
-function Transfer({ address, setBalance }) {
+function Transfer({ address, setBalance, privateKey }) {
   const [sendAmount, setSendAmount] = useState("");
   const [recipient, setRecipient] = useState("");
 
   const setValue = (setter) => (evt) => setter(evt.target.value);
 
+  const hashMessage = message => keccak256(Uint8Array.from(message));
+  const signMessage = msg => secp256k1.sign(hashMessage(msg),privateKey);
+
   async function transfer(evt) {
     evt.preventDefault();
+
+    const msg = { amount: parseInt(sendAmount), recipient };
+    const sig = signMessage(msg);
+
+    const stringifyBigInts = obj =>{
+      for(let prop in obj){
+        let value = obj[prop];
+        if(typeof value === 'bigint'){
+          obj[prop] = value.toString();
+        }else if(typeof value === 'object' && value !== null){
+          obj[prop] = stringifyBigInts(value);
+        }
+      }
+      return obj;
+    }
+
+    // stringify bigints before sending to server
+    const sigStringed = stringifyBigInts(sig);
+  
+    const tx = {
+      sig:sigStringed, msg, sender: address
+    }
 
     try {
       const {
         data: { balance },
-      } = await server.post(`send`, {
-        sender: address,
-        amount: parseInt(sendAmount),
-        recipient,
-      });
+      } = await server.post(`send`, tx);
       setBalance(balance);
     } catch (ex) {
       alert(ex.response.data.message);
